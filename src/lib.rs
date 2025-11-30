@@ -50,6 +50,9 @@ pub mod log_config {
 pub mod errors {
     use std::fmt::Display;
 
+    use axum::{Json, http::StatusCode, response::IntoResponse};
+    use serde_json::json;
+
     #[derive(Debug)]
     pub struct SSSErrorWrapper {
         pub inner: shamirsecretsharing::SSSError,
@@ -127,5 +130,25 @@ pub mod errors {
 
         #[error("invalid commitment")]
         InvalidCommitment,
+    }
+
+    impl IntoResponse for Svr3Error {
+        fn into_response(self) -> axum::response::Response {
+            let status = match self {
+                Svr3Error::UsageExceeded => StatusCode::TOO_MANY_REQUESTS,
+                Svr3Error::KeyNotFound { .. } => StatusCode::NOT_FOUND,
+                Svr3Error::ServerNotFound { .. } => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+
+
+            let error_message = serde_json::to_value(self.to_string()).unwrap();
+            let error_type = serde_json::to_value(self).unwrap();
+            let body = Json(json!({
+                "error": error_type,
+                "message": error_message,
+            }));
+            (status, body).into_response()
+        }
     }
 }
