@@ -6,32 +6,7 @@ use curve25519_dalek::ristretto::RistrettoPoint;
 use sha2::{Digest as _, Sha512};
 use voprf::{BlindedElement, Ristretto255, VoprfClient, VoprfClientBlindResult, VoprfServer, VoprfServerEvaluateResult};
 
-#[derive(Debug, thiserror::Error)]
-enum Svr3Error {
-    #[error("usage count exceeded")]
-    UsageExceeded,
-
-    #[error("key not found for client {client_id}")]
-    KeyNotFound { client_id: usize },
-
-    #[error("shamir secret sharing error: {0}")]
-    ShamirSecretSharingError(shamirsecretsharing::SSSError),
-
-    #[error("oprf client error: {0}")]
-    OprfClientError(voprf::Error),
-
-    #[error("server {server_id} not found")]
-    ServerNotFound { server_id: usize },
-
-    #[error("invalid shares")]
-    InvalidShares,
-
-    #[error("commitment not found")]
-    CommitmentNotFound,
-
-    #[error("invalid commitment")]
-    InvalidCommitment,
-}
+use pirateship_svr3::errors::{SSSErrorWrapper, Svr3Error, VoprfErrorWrapper};
 
 fn __hash(parts: &[&[u8]]) -> Vec<u8> {
     let mut hasher = Sha512::new();
@@ -86,20 +61,20 @@ impl Client {
         let t = self.server_threshold;
         let n = self.server_count;
 
-        let shares = shamirsecretsharing::create_shares(client_secret, n as u8, (t + 1) as u8).map_err(Svr3Error::ShamirSecretSharingError)?;
+        let shares = shamirsecretsharing::create_shares(client_secret, n as u8, (t + 1) as u8).map_err(|e| Svr3Error::ShamirSecretSharingError(SSSErrorWrapper::from(e)))?;
 
         let mut rng = OsRng;
         for (i, share) in shares.iter().enumerate() {
 
             let oprf_input = __hash(&[password, i.to_be_bytes().as_ref()]);
             let VoprfClientBlindResult { state, message: blinded_element } =
-                VoprfClient::<Ristretto255>::blind(&oprf_input, &mut rng).map_err(Svr3Error::OprfClientError)?;
+                VoprfClient::<Ristretto255>::blind(&oprf_input, &mut rng).map_err(|e| Svr3Error::OprfClientError(VoprfErrorWrapper::from(e)))?;
 
             let server_handle = self.server_handles.get_mut(&i).ok_or(Svr3Error::ServerNotFound { server_id: i })?;
             let (evaluate_result, server_pk) = server_handle.refresh_client(self.id, &blinded_element)?;
 
             let mask = state.finalize(&oprf_input, &evaluate_result.message, &evaluate_result.proof, server_pk.clone())
-                .map_err(Svr3Error::OprfClientError)?
+                .map_err(|e| Svr3Error::OprfClientError(VoprfErrorWrapper::from(e)))?
                 .to_vec();
 
             let padded_mask = if mask.len() < share.len() {
@@ -153,13 +128,13 @@ impl Client {
 
             let oprf_input = __hash(&[password, server_id.to_be_bytes().as_ref()]);
             let VoprfClientBlindResult { state, message: blinded_element } =
-                VoprfClient::<Ristretto255>::blind(&oprf_input, &mut rng).map_err(Svr3Error::OprfClientError)?;
+                VoprfClient::<Ristretto255>::blind(&oprf_input, &mut rng).map_err(|e| Svr3Error::OprfClientError(VoprfErrorWrapper::from(e)))?;
 
             let VoprfServerEvaluateResult { message, proof } = server_handle.blind_evaluate(self.id, &blinded_element)?;
 
             let mask = state.finalize(&oprf_input, &message, &proof,
                 self.server_pks.get(&server_id).ok_or(Svr3Error::ServerNotFound { server_id })?.clone())
-                .map_err(Svr3Error::OprfClientError)?
+                .map_err(|e| Svr3Error::OprfClientError(VoprfErrorWrapper::from(e)))?
                 .to_vec();
 
             let masked_share = self.masked_shares.get(&server_id).ok_or(Svr3Error::ServerNotFound { server_id })?.clone();
@@ -183,7 +158,7 @@ impl Client {
         }
 
         let secret = shamirsecretsharing::combine_shares(&retrieved_shares.values().cloned().collect::<Vec<_>>())
-            .map_err(Svr3Error::ShamirSecretSharingError)?
+            .map_err(|e| Svr3Error::ShamirSecretSharingError(SSSErrorWrapper::from(e)))?
             .ok_or(Svr3Error::InvalidShares)?;
 
         let r = __hash(&[&secret]);
