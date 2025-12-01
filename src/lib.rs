@@ -53,6 +53,8 @@ pub mod errors {
     use axum::{Json, http::StatusCode, response::IntoResponse};
     use serde_json::json;
 
+    use crate::state::ClientId;
+
     #[derive(Debug)]
     pub struct SSSErrorWrapper {
         pub inner: shamirsecretsharing::SSSError,
@@ -111,7 +113,7 @@ pub mod errors {
         UsageExceeded,
 
         #[error("key not found for client {client_id}")]
-        KeyNotFound { client_id: usize },
+        KeyNotFound { client_id: ClientId },
 
         #[error("shamir secret sharing error: {0}")]
         ShamirSecretSharingError(SSSErrorWrapper),

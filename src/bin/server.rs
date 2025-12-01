@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
-use axum::{Router, routing::get};
+use axum::{Router, routing::{get, post}};
 use log::info;
-use pirateship_svr3::{handlers::root_handler, log_config::default_log4rs_config, state::ServerState};
+use pirateship_svr3::{handlers::{evaluate_handler, refresh_handler, root_handler}, log_config::default_log4rs_config, state::ServerState};
 use tokio::net::TcpListener;
 
 
 fn get_app<T>(state: Arc<ServerState>) -> Router<T> {
     Router::new()
         .route("/", get(root_handler))
+        .route("/refresh", post(refresh_handler))
+        .route("/evaluate", post(evaluate_handler))
         .with_state(state)
 }
 

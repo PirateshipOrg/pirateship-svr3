@@ -4,6 +4,8 @@ mod private_state;
 use shared_state::SharedState;
 use private_state::PrivateState;
 
+pub type ClientId = String;
+
 pub struct ServerState {
     pub shared_state: SharedState,
     pub private_state: PrivateState,
