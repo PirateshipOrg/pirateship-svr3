@@ -6,7 +6,7 @@ use curve25519_dalek::ristretto::RistrettoPoint;
 use sha2::{Digest as _, Sha512};
 use voprf::{BlindedElement, Ristretto255, VoprfClient, VoprfClientBlindResult, VoprfServer, VoprfServerEvaluateResult};
 
-use pirateship_svr3::errors::{SSSErrorWrapper, Svr3Error, VoprfErrorWrapper};
+use pirateship_svr3::{errors::{SSSErrorWrapper, Svr3Error, VoprfErrorWrapper}, handlers::marshal::ClientRequest};
 
 fn __hash(parts: &[&[u8]]) -> Vec<u8> {
     let mut hasher = Sha512::new();
@@ -69,6 +69,13 @@ impl Client {
             let oprf_input = __hash(&[password, i.to_be_bytes().as_ref()]);
             let VoprfClientBlindResult { state, message: blinded_element } =
                 VoprfClient::<Ristretto255>::blind(&oprf_input, &mut rng).map_err(|e| Svr3Error::OprfClientError(VoprfErrorWrapper::from(e)))?;
+
+            let client_request = ClientRequest {
+                client_id: self.id.to_string(),
+                blinded_element: blinded_element.clone(),
+            };
+            let client_request_json = serde_json::to_string(&client_request).unwrap();
+            println!("Client request: {}", client_request_json);
 
             let server_handle = self.server_handles.get_mut(&i).ok_or(Svr3Error::ServerNotFound { server_id: i })?;
             let (evaluate_result, server_pk) = server_handle.refresh_client(self.id, &blinded_element)?;
@@ -220,8 +227,8 @@ impl Server {
     }
 
     fn blind_evaluate(&mut self, client_id: usize, blinded_element: &BlindedElement<Ristretto255>) -> Result<VoprfServerEvaluateResult<Ristretto255>, Svr3Error> {
-        let oprf_server = self.oprf_servers.get_mut(&client_id).ok_or(Svr3Error::KeyNotFound { client_id })?;
-        let usage_count = self.usage_count.get_mut(&client_id).ok_or(Svr3Error::KeyNotFound { client_id })?;
+        let oprf_server = self.oprf_servers.get_mut(&client_id).ok_or(Svr3Error::KeyNotFound { client_id: client_id.to_string() })?;
+        let usage_count = self.usage_count.get_mut(&client_id).ok_or(Svr3Error::KeyNotFound { client_id: client_id.to_string() })?;
         if *usage_count >= self.max_uses {
             return Err(Svr3Error::UsageExceeded);
         }

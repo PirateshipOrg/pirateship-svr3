@@ -1,5 +1,5 @@
 /// Request/response marshalling.
-mod marshal;
+pub mod marshal;
 
 use marshal::ClientRequest;
 use std::sync::Arc;
