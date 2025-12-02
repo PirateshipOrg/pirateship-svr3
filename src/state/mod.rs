@@ -10,13 +10,19 @@ pub type ClientId = String;
 pub struct ServerState {
     pub shared_state: SharedState,
     pub private_state: PrivateState,
+    pub max_oprf_eval_attempts: usize,
 }
 
 impl ServerState {
     pub fn new(config: pft::config::Config) -> Self {
+        let max_oprf_eval_attempts = config.app_config.app_specific.get("max_oprf_eval_attempts")
+            .expect("max_oprf_eval_attempts not found in config")
+            .as_u64()
+            .expect("max_oprf_eval_attempts must be a number") as usize;
         Self {
             shared_state: SharedState::new(config),
             private_state: PrivateState::new(),
+            max_oprf_eval_attempts,
         }
     }
 

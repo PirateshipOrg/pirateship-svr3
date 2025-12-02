@@ -3229,6 +3229,8 @@ dependencies = [
  "log",
  "log4rs",
  "pft",
+ "prost",
+ "prost-types",
  "rand 0.8.5",
  "serde",
  "serde_json",

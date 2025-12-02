@@ -14,7 +14,7 @@ pub struct PrivateState {
 }
 
 impl PrivateState {
-    pub fn new() -> Self {
+    pub fn new() -> Self {        
         Self {
             voprf_servers: DashMap::new(),
         }
