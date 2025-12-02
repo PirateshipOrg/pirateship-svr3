@@ -5,6 +5,9 @@ pub mod state;
 // Home for REST handlers.
 pub mod handlers;
 
+// Client library for key recovery.
+pub mod client;
+
 
 // Log4rs configuration (ported from Pirateship)
 pub mod log_config {
@@ -123,6 +126,9 @@ pub mod errors {
 
         #[error("server {server_id} not found")]
         ServerNotFound { server_id: usize },
+
+        #[error("internal server error: {server_addr}")]
+        InternalServerError { server_addr: String },
 
         #[error("invalid shares")]
         InvalidShares,
