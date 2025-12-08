@@ -23,6 +23,9 @@ pub struct ClientConfig {
     
     /// List of server base URLs (e.g., ["http://server1:8080", "http://server2:8080"])
     pub server_urls: Vec<String>,
+
+    /// Share store file path
+    pub share_store_file_path: String,
 }
 
 impl ClientConfig {
@@ -44,6 +47,7 @@ impl ClientConfig {
         server_threshold: usize,
         server_count: usize,
         server_urls: Vec<String>,
+        share_store_file_path: String,
     ) -> Self {
         assert!(server_threshold + 1 <= server_count);
         assert!(server_count <= 255);
@@ -54,6 +58,7 @@ impl ClientConfig {
             server_threshold,
             server_count,
             server_urls,
+            share_store_file_path,
         }
     }
     

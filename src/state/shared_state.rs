@@ -147,20 +147,17 @@ impl AppEngine for CounterStore {
                     }
                     let operand = &op.operands[0];
                     let client_id: ClientId = String::from_utf8(operand.clone()).unwrap();
+                    let entry = self.committed_ops.entry(client_id.clone()).or_insert(Vec::new());
                     match op.op_type() {
                         pft::proto::execution::ProtoTransactionOpType::Increment => {
-                            self.committed_ops.get_mut(&client_id).unwrap().push((
-                                block.block.n,
-                                tx_n,
-                                op_n,
+                            entry.push((
+                                block.block.n, tx_n, op_n,
                                 CounterOp::Increment,
                             ));
                         }
                         pft::proto::execution::ProtoTransactionOpType::Write => {
-                            self.committed_ops.get_mut(&client_id).unwrap().push((
-                                block.block.n,
-                                tx_n,
-                                op_n,
+                            entry.push((
+                                block.block.n, tx_n, op_n,
                                 CounterOp::Reset,
                             ));
                         }
@@ -382,7 +379,7 @@ impl SharedState {
         let probe_transaction = pft::proto::execution::ProtoTransaction {
             on_receive: Some(pft::proto::execution::ProtoTransactionPhase {
                 ops: vec![pft::proto::execution::ProtoTransactionOp {
-                    op_type: pft::proto::execution::ProtoTransactionOpType::Read as i32,
+                    op_type: pft::proto::execution::ProtoTransactionOpType::Probe as i32,
                     operands: vec![block_n.to_be_bytes().to_vec()],
                 }],
             }),

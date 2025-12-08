@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use curve25519_dalek::ristretto::RistrettoPoint;
 use itertools::Itertools;
 use rand::{rngs::OsRng, seq::IteratorRandom as _};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha512};
 use voprf::{Ristretto255, VoprfClient, VoprfClientBlindResult};
 
@@ -16,7 +17,8 @@ use crate::errors::{SSSErrorWrapper, Svr3Error, VoprfErrorWrapper};
 use crate::state::ClientId;
 
 use super::config::ClientConfig;
-use super::http_client::{EvaluateResponse, RefreshResponse, ServerHttpClient};
+use crate::handlers::marshal::{EvaluateResponse, RefreshResponse};
+use super::http_client::ServerHttpClient;
 
 /// Helper function to hash multiple byte slices together.
 /// 
@@ -59,6 +61,24 @@ fn xor_bytes(a: &[u8], b: &[u8]) -> Vec<u8> {
     result
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecoveryClientShareStore {
+    pub masked_shares: HashMap<usize, Vec<u8>>,
+    pub server_pks: HashMap<usize, RistrettoPoint>,
+    pub commitment: Option<Vec<u8>>,
+}
+
+impl From<&mut RecoveryClient> for RecoveryClientShareStore {
+    fn from(client: &mut RecoveryClient) -> Self {
+        Self {
+            masked_shares: client.masked_shares.clone(),
+            server_pks: client.server_pks.clone(),
+            commitment: client.commitment.clone(),
+        }
+    }
+}
+
+
 /// Client for storing and recovering secrets using the SVR3 protocol.
 /// 
 /// This client implements the SVR3 protocol for secure value recovery:
@@ -83,11 +103,13 @@ pub struct RecoveryClient {
     masked_shares: HashMap<usize, Vec<u8>>,
     
     /// Public keys of OPRF servers (server_id -> public_key)
-    #[allow(dead_code)]
     server_pks: HashMap<usize, RistrettoPoint>,
     
     /// HTTP clients for each server (server_id -> http_client)
     server_clients: HashMap<usize, ServerHttpClient>,
+
+    /// Share store file path
+    share_store_file_path: String,
 }
 
 impl RecoveryClient {
@@ -105,15 +127,26 @@ impl RecoveryClient {
         for (i, url) in config.server_urls.iter().enumerate() {
             server_clients.insert(i, ServerHttpClient::new(url.clone()));
         }
+
+        let share_store = if let Ok(share_store_json) = std::fs::read_to_string(&config.share_store_file_path) {
+            serde_json::from_str(&share_store_json).unwrap()
+        } else {
+            RecoveryClientShareStore {
+                masked_shares: HashMap::new(),
+                server_pks: HashMap::new(),
+                commitment: None,
+            }
+        };
         
         Self {
             client_id: config.client_id,
             server_threshold: config.server_threshold,
             server_count: config.server_count,
-            commitment: None,
-            masked_shares: HashMap::new(),
-            server_pks: HashMap::new(),
+            commitment: share_store.commitment,
+            masked_shares: share_store.masked_shares,
+            server_pks: share_store.server_pks,
             server_clients,
+            share_store_file_path: config.share_store_file_path,
         }
     }
     
@@ -231,6 +264,11 @@ impl RecoveryClient {
         let commitment = hash(&[password, &serialized_shares, &r]);
         self.commitment = Some(commitment);
 
+        let _path = self.share_store_file_path.clone();
+        let share_store = RecoveryClientShareStore::from(self);
+        let share_store_json = serde_json::to_string(&share_store).unwrap();
+        std::fs::write(_path, share_store_json).unwrap();
+
         Ok(())
     }
     
@@ -262,6 +300,7 @@ impl RecoveryClient {
         
         // Retrieve shares from each selected server
         for server_id in target_server_ids {
+            log::info!("Restoring from server {} {:?}", server_id, self.server_clients.get(&server_id).unwrap().base_url);
             let server_client = self.server_clients
                 .get(&server_id)
                 .ok_or(Svr3Error::ServerNotFound { server_id })?;

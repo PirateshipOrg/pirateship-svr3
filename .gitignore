@@ -1,2 +1,4 @@
 /target
 configs/
+*.bin
+*.json

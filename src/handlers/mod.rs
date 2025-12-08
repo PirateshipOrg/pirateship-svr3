@@ -8,7 +8,7 @@ use axum::{Json, extract::{self, State}};
 use serde_json::{Value, json};
 use voprf::VoprfServerEvaluateResult;
 
-use crate::{errors::Svr3Error, state::{ClientId, ServerState}};
+use crate::{errors::Svr3Error, handlers::marshal::{EvaluateResponse, RefreshResponse}, state::{ClientId, ServerState}};
 
 
 /// For Get /.
@@ -22,7 +22,7 @@ pub async fn root_handler(State(state): State<Arc<ServerState>>) -> Result<Json<
 
 /// For Post /refresh.
 /// Refreshes the OPRF server for a client.
-pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Json(request): Json<ClientRequest>) -> Result<Json<Value>, Svr3Error> {
+pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Json(request): Json<ClientRequest>) -> Result<Json<RefreshResponse>, Svr3Error> {
     let ClientRequest { client_id, blinded_element } = request;
 
     // Step 1: Reset counter to 0.
@@ -31,11 +31,11 @@ pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Jso
     // Step 2: Refresh the OPRF server.
     let (evaluate_result, public_key) = state.private_state.refresh_client(client_id, &blinded_element)?;
     let VoprfServerEvaluateResult { message, proof } = evaluate_result;
-    Ok(Json(json!({
-        "evaluate_result": message,
-        "proof": proof,
-        "public_key": public_key,
-    })))
+    Ok(Json(RefreshResponse {
+        evaluate_result: message,
+        proof: proof,
+        public_key: public_key,
+    }))
 }
 
 /// Threshold must be set to (N - u) out of N servers.
@@ -49,7 +49,7 @@ const MAX_UNAUDITED_OPS: usize = 2;
 
 /// For Post /evaluate.
 /// Evaluates the OPRF for a client.
-pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Json(request): Json<ClientRequest>) -> Result<Json<Value>, Svr3Error> {
+pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Json(request): Json<ClientRequest>) -> Result<Json<EvaluateResponse>, Svr3Error> {
     let ClientRequest { client_id, blinded_element } = request;
     // Step 1: Increment counter.
     let (mut val, block_n) = state.shared_state.add_fetch(client_id.clone()).await;
@@ -72,10 +72,10 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
     // Step 3: Evaluate the OPRF.
     let evaluate_result = state.private_state.blind_evaluate(client_id, &blinded_element)?;
     let VoprfServerEvaluateResult { message, proof } = evaluate_result;
-    Ok(Json(json!({
-        "evaluate_result": message,
-        "proof": proof,
-    })))
+    Ok(Json(EvaluateResponse {
+        evaluate_result: message,
+        proof: proof,
+    }))
 }
 
 async fn throttle_for_audit(state: &Arc<ServerState>, client_id: ClientId, block_n: u64) -> usize {
