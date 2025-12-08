@@ -38,13 +38,33 @@ pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Jso
     }))
 }
 
-/// Threshold must be set to (N - u) out of N servers.
-/// m sets of (N - u) servers intersect in at least N - mu servers.
-/// To protect against rollback attacks, N - mu > r + 1,
-/// since at least 1 unrolled back server must see both ops.
-/// This is only satisfied if m = 1.
-/// So, even if there are 2 unaudited ops, a correct server must throttle for audit.
-const MAX_UNAUDITED_OPS: usize = 2;
+
+fn check_for_throttle(val: usize, unaudited_ops: usize, last_seen_value: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
+    if val + unaudited_ops > max_oprf_eval_attempts {
+        // Too close to the limit.
+        return true;
+    }
+
+    if val / (t + 1) <= last_seen_value / (t + 1) {
+        // Too quick.
+        return true;
+    }
+
+    // Threshold must be set to (N - u) out of N servers.
+    // m sets of (N - u) servers intersect in at least N - mu servers.
+    // To protect against rollback attacks, N - mu > r + 1,
+    // since at least 1 unrolled back server must see both ops.
+    // This is only satisfied if m = 1.
+    // So, even if there are 2 unaudited ops, a correct server must throttle for audit.
+
+    if unaudited_ops > t + 1 {
+        // Too many unaudited ops.
+        return true;
+    }
+
+    // No throttle.
+    false
+}
 
 
 /// For Post /evaluate.
@@ -61,9 +81,16 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
     // Step 2: Find locally how many unaudited ops are there for this client.
     let unaudited_ops = state.shared_state.get_local_unaudited_ops(client_id.clone()).await;
 
-    if unaudited_ops > MAX_UNAUDITED_OPS || val + unaudited_ops > state.max_oprf_eval_attempts {
+    let last_seen_value = match state.shared_state.last_seen_values.get(&client_id) {
+        Some(value) => *value,
+        None => 0,
+    };
+
+    if check_for_throttle(val, unaudited_ops,  last_seen_value, state.threshold, state.max_oprf_eval_attempts) {
         val = throttle_for_audit(&state, client_id.clone(), block_n).await;
     }
+
+    state.shared_state.last_seen_values.insert(client_id.clone(), val);
 
     if val > state.max_oprf_eval_attempts {
         return Err(Svr3Error::UsageExceeded);
@@ -72,6 +99,7 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
     // Step 3: Evaluate the OPRF.
     let evaluate_result = state.private_state.blind_evaluate(client_id, &blinded_element)?;
     let VoprfServerEvaluateResult { message, proof } = evaluate_result;
+
     Ok(Json(EvaluateResponse {
         evaluate_result: message,
         proof: proof,

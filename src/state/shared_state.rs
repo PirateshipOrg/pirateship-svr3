@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use dashmap::DashMap;
 use pft::{
     config::AtomicConfig,
     consensus::{
@@ -213,7 +214,11 @@ impl AppEngine for CounterStore {
                 val += self.audited_counters.get(client_id).unwrap_or(&0);
             }
             self.audited_counters.insert(client_id.clone(), val);
+            // Remove committed ops
+            committed_ops.retain(|(block_n, _, _, _)| *block_n > self.bci);
         }
+
+        
 
         all_results
     }
@@ -263,6 +268,8 @@ pub struct SharedState {
     name: String,
     tag: AtomicU64,
     alleged_leader: AtomicString,
+
+    pub last_seen_values: DashMap<ClientId, usize>,
 }
 
 const CLIENT_SUB_ID_REMOTE: u64 = 42;
@@ -291,6 +298,7 @@ impl SharedState {
             name,
             tag: AtomicU64::new(1),
             alleged_leader,
+            last_seen_values: DashMap::new(),
         }
     }
 
@@ -465,10 +473,10 @@ impl SharedState {
 
         self.consensus_self_tx.send(msg).await.unwrap();
 
-        let result = rx.recv().await.unwrap().0;
-        let result = result.as_ref();
-
+        
         if await_reply {
+            let result = rx.recv().await.unwrap().0;
+            let result = result.as_ref();
             // Response is guaranteed here.
             let reply = ProtoClientReply::decode(&result.0.as_slice()[0..result.1]).unwrap();
 

@@ -11,6 +11,7 @@ pub struct ServerState {
     pub shared_state: SharedState,
     pub private_state: PrivateState,
     pub max_oprf_eval_attempts: usize,
+    pub threshold: usize,
 }
 
 impl ServerState {
@@ -19,10 +20,17 @@ impl ServerState {
             .expect("max_oprf_eval_attempts not found in config")
             .as_u64()
             .expect("max_oprf_eval_attempts must be a number") as usize;
+
+        let threshold = config.app_config.app_specific.get("server_threshold")
+            .expect("threshold not found in config")
+            .as_u64()
+            .expect("threshold must be a number") as usize;
+
         Self {
             shared_state: SharedState::new(config),
             private_state: PrivateState::new(),
             max_oprf_eval_attempts,
+            threshold,
         }
     }
 
