@@ -16,7 +16,7 @@ use pirateship_svr3::{
     log_config::default_log4rs_config,
 };
 
-const ITERATIONS: usize = 1000;
+const ITERATIONS: usize = 60;
 const SECRET: &[u8] = b"benchmark_secret_key_benchmark_secret_key_benchmark_secret_key_b";
 
 /// Prints usage information for the benchmark client.
@@ -294,7 +294,7 @@ async fn main() {
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
     
     println!("Benchmark completed. Total restore operations: {}", all_latencies.len());

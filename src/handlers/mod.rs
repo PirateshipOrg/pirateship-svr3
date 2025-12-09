@@ -39,8 +39,6 @@ pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Jso
     }))
 }
 
-
-#[cfg(feature = "throttle")]
 fn check_for_throttle(val: usize, bci: usize, last_seen_value: usize, last_seen_block_n: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
     if val + t + 1 > max_oprf_eval_attempts {
         error!("Type 1");
@@ -81,10 +79,6 @@ fn check_for_throttle(val: usize, bci: usize, last_seen_value: usize, last_seen_
     false
 }
 
-#[cfg(not(feature = "throttle"))]
-fn check_for_throttle(val: usize, unaudited_ops: usize, last_seen_value: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
-    false
-}
 
 
 /// For Post /evaluate.
@@ -106,6 +100,8 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
         Some(block_n) => *block_n,
         None => 0,
     };
+
+    #[cfg(feature = "throttle")]
     if check_for_throttle(val, bci, last_seen_value, last_seen_block_n as usize, state.threshold, state.max_oprf_eval_attempts) {
         throttle_for_audit(&state, client_id.clone(), block_n).await;
     }

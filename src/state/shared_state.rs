@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use pft::{
     config::AtomicConfig,
     consensus::{
@@ -26,6 +26,7 @@ use pft::{
         channel::{Sender, make_channel},
     },
 };
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex, task::JoinSet};
 
@@ -268,7 +269,7 @@ type AtomicString = AtomicStruct<String>;
 
 pub struct SharedState {
     consensus_node: Arc<Mutex<ConsensusNode<CounterStore>>>,
-    consensus_client: PinnedClient,
+    consensus_client_store: DashMap<usize, Arc<Mutex<PinnedClient>>>,
     consensus_self_tx: Sender<TxWithAckChanTag>,
     name: String,
     tag: AtomicU64,
@@ -277,7 +278,6 @@ pub struct SharedState {
     pub last_seen_values: DashMap<ClientId, usize>,
     pub last_seen_block_n: DashMap<ClientId, u64>,
 
-    send_mtx: Mutex<()>,
 }
 
 const CLIENT_SUB_ID_REMOTE: u64 = 42;
@@ -293,28 +293,34 @@ impl SharedState {
 
         let key_store = KeyStore::new(
             &config.rpc_config.allowed_keylist_path,
-            // &config.rpc_config.signing_priv_key_path,
-            &String::from("configs/client1_signing_privkey.pem"),
+            &config.rpc_config.signing_priv_key_path,
+            // &String::from("configs/client1_signing_privkey.pem"),
         );
         let key_store = AtomicKeyStore::new(key_store);
         let mut _config = config.clone();
-        _config.net_config.name = "client1".to_string();
+        _config.net_config.name = name.clone() + "_client1";
 
         let config = AtomicConfig::new(_config);
         // Name is nodeN. Find n
         let n = name.split("node").nth(1).unwrap().parse::<usize>().unwrap();
-        let consensus_client =
-            Client::new_atomic(config, key_store, false, CLIENT_SUB_ID_REMOTE + n as u64).into();
+
+        let consensus_client_store = DashMap::new();
+
+        for i in 0..100usize {
+
+            let consensus_client =
+                Client::new_atomic(config.clone(), key_store.clone(), false, n as u64 * CLIENT_SUB_ID_REMOTE + i as u64).into();
+            consensus_client_store.insert(i, Arc::new(Mutex::new(consensus_client)));
+        }
         Self {
             consensus_node: Arc::new(Mutex::new(consensus_node)),
-            consensus_client,
+            consensus_client_store,
             consensus_self_tx: tx,
             name,
             tag: AtomicU64::new(1),
             alleged_leader,
             last_seen_values: DashMap::new(),
             last_seen_block_n: DashMap::new(),
-            send_mtx: Mutex::new(()),
         }
     }
 
@@ -432,9 +438,12 @@ impl SharedState {
         transaction: pft::proto::execution::ProtoTransaction,
     ) -> Option<(usize /* counter value */, u64 /* block n */)> {
         // return Some((0, 0));
-        let _guard = self.send_mtx.lock().await;
+        // Choose a random client from the store.
+        let client_idx = rand::thread_rng().gen_range(0..self.consensus_client_store.len());
+        let client = self.consensus_client_store.get(&client_idx).unwrap().clone();
+        let client = client.lock().await;
         let leader = self.alleged_leader.get();
-        let origin = "client1".to_string();
+        let origin = self.name.clone() + "_client1";
         let client_tag = self.tag.fetch_add(1, Ordering::SeqCst);
 
         let client_request = pft::proto::rpc::ProtoPayload {
@@ -452,7 +461,7 @@ impl SharedState {
         let sz = payload.len();
 
         let Ok(reply) = PinnedClient::send_and_await_reply(
-            &self.consensus_client,
+            &client,
             &leader,
             MessageRef(&payload, sz, &pft::rpc::SenderType::Anon),
         )
@@ -484,7 +493,7 @@ impl SharedState {
         await_reply: bool,
     ) -> usize {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        let sender = SenderType::Auth("client1".to_string(), CLIENT_SUB_ID_SELF);
+        let sender = SenderType::Auth(self.name.clone() + "_client1", CLIENT_SUB_ID_SELF);
         let tag = self.tag.fetch_add(1, Ordering::SeqCst);
         let ack_chan: MsgAckChanWithTag = (tx, tag, sender);
         let msg: TxWithAckChanTag = (Some(transaction), ack_chan);
