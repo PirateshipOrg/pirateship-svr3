@@ -102,7 +102,9 @@ impl CounterStore {
         (val, guarded_by_reset)
     }
     fn get_committed_value(&self, client_id: &ClientId) -> usize {
-        let committed_ops = self.committed_ops.get(client_id).unwrap();
+        let Some(committed_ops) = self.committed_ops.get(client_id) else {
+            return 0;
+        };
         let (mut val, guarded_by_reset) = Self::get_value(committed_ops);
 
         if !guarded_by_reset {
@@ -203,6 +205,7 @@ impl AppEngine for CounterStore {
         }
 
         // Move audited entries from committed_ops and merge the results with audited_counters.
+        let curr_val = self.get_committed_value(&String::from("client5"));
         for (client_id, committed_ops) in self.committed_ops.iter_mut() {
             let ops = committed_ops
                 .iter()
@@ -217,6 +220,8 @@ impl AppEngine for CounterStore {
             // Remove committed ops
             committed_ops.retain(|(block_n, _, _, _)| *block_n > self.bci);
         }
+        let val_after_change = self.get_committed_value(&String::from("client5"));
+        assert!(val_after_change == curr_val);
 
         
 
@@ -238,17 +243,17 @@ impl AppEngine for CounterStore {
             return pft::proto::execution::ProtoTransactionResult { result: Vec::new() };
         };
         let mut result = Vec::new();
-        let _empty_vec = Vec::new();
+        // let _empty_vec = Vec::new();
         for op in on_receive.ops.iter() {
-            let client_id: ClientId = String::from_utf8(op.operands[0].clone()).unwrap();
-            let val = self
-                .committed_ops
-                .get(&client_id)
-                .unwrap_or(&_empty_vec)
-                .len();
+            // let client_id: ClientId = String::from_utf8(op.operands[0].clone()).unwrap();
+            // let val = self
+            //     .committed_ops
+            //     .get(&client_id)
+            //     .unwrap_or(&_empty_vec)
+            //     .len();
             result.push(pft::proto::execution::ProtoTransactionOpResult {
                 success: true,
-                values: vec![val.to_be_bytes().to_vec()],
+                values: vec![self.bci.to_be_bytes().to_vec()],
             });
         }
         pft::proto::execution::ProtoTransactionResult { result: result }
@@ -270,6 +275,9 @@ pub struct SharedState {
     alleged_leader: AtomicString,
 
     pub last_seen_values: DashMap<ClientId, usize>,
+    pub last_seen_block_n: DashMap<ClientId, u64>,
+
+    send_mtx: Mutex<()>,
 }
 
 const CLIENT_SUB_ID_REMOTE: u64 = 42;
@@ -285,12 +293,18 @@ impl SharedState {
 
         let key_store = KeyStore::new(
             &config.rpc_config.allowed_keylist_path,
-            &config.rpc_config.signing_priv_key_path,
+            // &config.rpc_config.signing_priv_key_path,
+            &String::from("configs/client1_signing_privkey.pem"),
         );
         let key_store = AtomicKeyStore::new(key_store);
-        let config = AtomicConfig::new(config);
+        let mut _config = config.clone();
+        _config.net_config.name = "client1".to_string();
+
+        let config = AtomicConfig::new(_config);
+        // Name is nodeN. Find n
+        let n = name.split("node").nth(1).unwrap().parse::<usize>().unwrap();
         let consensus_client =
-            Client::new_atomic(config, key_store, true, CLIENT_SUB_ID_REMOTE).into();
+            Client::new_atomic(config, key_store, false, CLIENT_SUB_ID_REMOTE + n as u64).into();
         Self {
             consensus_node: Arc::new(Mutex::new(consensus_node)),
             consensus_client,
@@ -299,6 +313,8 @@ impl SharedState {
             tag: AtomicU64::new(1),
             alleged_leader,
             last_seen_values: DashMap::new(),
+            last_seen_block_n: DashMap::new(),
+            send_mtx: Mutex::new(()),
         }
     }
 
@@ -415,8 +431,10 @@ impl SharedState {
         &self,
         transaction: pft::proto::execution::ProtoTransaction,
     ) -> Option<(usize /* counter value */, u64 /* block n */)> {
+        // return Some((0, 0));
+        let _guard = self.send_mtx.lock().await;
         let leader = self.alleged_leader.get();
-        let origin = self.name.clone();
+        let origin = "client1".to_string();
         let client_tag = self.tag.fetch_add(1, Ordering::SeqCst);
 
         let client_request = pft::proto::rpc::ProtoPayload {
@@ -466,7 +484,7 @@ impl SharedState {
         await_reply: bool,
     ) -> usize {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        let sender = SenderType::Auth(self.name.clone(), CLIENT_SUB_ID_SELF);
+        let sender = SenderType::Auth("client1".to_string(), CLIENT_SUB_ID_SELF);
         let tag = self.tag.fetch_add(1, Ordering::SeqCst);
         let ack_chan: MsgAckChanWithTag = (tx, tag, sender);
         let msg: TxWithAckChanTag = (Some(transaction), ack_chan);

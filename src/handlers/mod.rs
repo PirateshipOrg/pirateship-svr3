@@ -1,6 +1,7 @@
 /// Request/response marshalling.
 pub mod marshal;
 
+use log::{error, warn};
 use marshal::ClientRequest;
 use std::sync::Arc;
 
@@ -39,16 +40,22 @@ pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Jso
 }
 
 
-fn check_for_throttle(val: usize, unaudited_ops: usize, last_seen_value: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
-    if val + unaudited_ops > max_oprf_eval_attempts {
+#[cfg(feature = "throttle")]
+fn check_for_throttle(val: usize, bci: usize, last_seen_value: usize, last_seen_block_n: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
+    if val + t + 1 > max_oprf_eval_attempts {
+        error!("Type 1");
         // Too close to the limit.
         return true;
     }
 
-    if val / (t + 1) <= last_seen_value / (t + 1) {
-        // Too quick.
-        return true;
-    }
+    // if last_seen_value > 0 {
+    //     if (val - 1) / (t + 1) <= (last_seen_value - 1) / (t + 1) {
+    //         error!("Type 2: {} {} {}", val, last_seen_value, t + 1);
+    //         // Too quick.
+    //         return true;
+    //     }
+    // }
+
 
     // Threshold must be set to (N - u) out of N servers.
     // m sets of (N - u) servers intersect in at least N - mu servers.
@@ -57,12 +64,25 @@ fn check_for_throttle(val: usize, unaudited_ops: usize, last_seen_value: usize, 
     // This is only satisfied if m = 1.
     // So, even if there are 2 unaudited ops, a correct server must throttle for audit.
 
-    if unaudited_ops > t + 1 {
-        // Too many unaudited ops.
-        return true;
+    // if unaudited_ops > t + 1 {
+    //     error!("Type 3: {} {}", unaudited_ops, t + 1);
+    //     // Too many unaudited ops.
+    //     return true;
+    // }
+
+    if last_seen_block_n > 0 {
+        if last_seen_block_n > bci {
+            error!("Type 2: {} {}", last_seen_block_n, bci);
+            return true;
+        }
     }
 
     // No throttle.
+    false
+}
+
+#[cfg(not(feature = "throttle"))]
+fn check_for_throttle(val: usize, unaudited_ops: usize, last_seen_value: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
     false
 }
 
@@ -73,25 +93,25 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
     let ClientRequest { client_id, blinded_element } = request;
     // Step 1: Increment counter.
     let (mut val, block_n) = state.shared_state.add_fetch(client_id.clone()).await;
-
     if val > state.max_oprf_eval_attempts {
         return Err(Svr3Error::UsageExceeded);
     }
-
     // Step 2: Find locally how many unaudited ops are there for this client.
-    let unaudited_ops = state.shared_state.get_local_unaudited_ops(client_id.clone()).await;
-
+    let bci = state.shared_state.get_local_unaudited_ops(client_id.clone()).await;
     let last_seen_value = match state.shared_state.last_seen_values.get(&client_id) {
         Some(value) => *value,
         None => 0,
     };
-
-    if check_for_throttle(val, unaudited_ops,  last_seen_value, state.threshold, state.max_oprf_eval_attempts) {
-        val = throttle_for_audit(&state, client_id.clone(), block_n).await;
+    let last_seen_block_n = match state.shared_state.last_seen_block_n.get(&client_id) {
+        Some(block_n) => *block_n,
+        None => 0,
+    };
+    if check_for_throttle(val, bci, last_seen_value, last_seen_block_n as usize, state.threshold, state.max_oprf_eval_attempts) {
+        throttle_for_audit(&state, client_id.clone(), block_n).await;
     }
-
+    
     state.shared_state.last_seen_values.insert(client_id.clone(), val);
-
+    state.shared_state.last_seen_block_n.insert(client_id.clone(), block_n);
     if val > state.max_oprf_eval_attempts {
         return Err(Svr3Error::UsageExceeded);
     }
@@ -106,12 +126,9 @@ pub async fn evaluate_handler(State(state): State<Arc<ServerState>>, extract::Js
     }))
 }
 
-async fn throttle_for_audit(state: &Arc<ServerState>, client_id: ClientId, block_n: u64) -> usize {
+async fn throttle_for_audit(state: &Arc<ServerState>, client_id: ClientId, block_n: u64) {
+    warn!("Throttling {client_id}");
     // Step 1: Probe for audit.
     state.shared_state.probe_for_audit(block_n).await;
 
-
-    // Step 2: Recalculate the final counter value.
-    let counter_value = state.shared_state.get_remote_unaudited_ops(client_id.clone()).await;
-    counter_value
 }

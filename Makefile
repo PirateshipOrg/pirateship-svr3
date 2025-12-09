@@ -1,2 +1,3 @@
-target: src
+.PHONY: all
+all: src
 	cargo build --release
