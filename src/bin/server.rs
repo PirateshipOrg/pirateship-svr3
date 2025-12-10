@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::{Router, routing::{get, post}};
 use log::info;
@@ -6,14 +6,15 @@ use pirateship_svr3::{handlers::{evaluate_handler, refresh_handler, root_handler
 use tokio::net::TcpListener;
 
 
-fn get_app<T>(state: Arc<ServerState>) -> Router<T> {
+fn get_app<T>(state: &Arc<ServerState>) -> Router<T> {
     Router::new()
         .route("/", get(root_handler))
         .route("/refresh", post(refresh_handler))
         .route("/evaluate", post(evaluate_handler))
-        .with_state(state)
+        .with_state(state.clone())
 }
 
+static STATE: OnceLock<Arc<ServerState>> = OnceLock::new();
 
 #[tokio::main]
 async fn main() {
@@ -30,7 +31,7 @@ async fn main() {
         .expect("rest_api_addr must be a string")
         .to_string();
 
-    let state = Arc::new(ServerState::new(config));
+    let state = STATE.get_or_init(|| Arc::new(ServerState::new(config)));
 
 
     info!("Initializing state...");

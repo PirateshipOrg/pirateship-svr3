@@ -4,10 +4,11 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
-    },
+    }, time::Duration,
 };
 
 use dashmap::{DashMap, DashSet};
+use log::{error, info};
 use pft::{
     config::AtomicConfig,
     consensus::{
@@ -16,7 +17,7 @@ use pft::{
         batch_proposal::{MsgAckChanWithTag, TxWithAckChanTag},
     },
     crypto::{AtomicKeyStore, KeyStore},
-    proto::client::ProtoClientReply,
+    proto::{client::ProtoClientReply, execution::ProtoTransaction},
     rpc::{
         MessageRef, SenderType,
         client::{Client, PinnedClient}
@@ -324,9 +325,39 @@ impl SharedState {
         }
     }
 
-    pub async fn init(&self) -> JoinSet<()> {
+    pub async fn init(&'static self) -> JoinSet<()> {
         let mut consensus_node = self.consensus_node.lock().await;
-        consensus_node.run().await
+        let mut handle = consensus_node.run().await;
+
+        if self.name == **self.alleged_leader.get() {
+
+            handle.spawn(async move {
+                info!("Waiting 5s for view to stabilize");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                info!("Submitting background noise");
+                loop {
+                    let transaction = pft::proto::execution::ProtoTransaction {
+                        on_crash_commit: Some(pft::proto::execution::ProtoTransactionPhase {
+                            ops: vec![pft::proto::execution::ProtoTransactionOp {
+                                op_type: pft::proto::execution::ProtoTransactionOpType::Increment as i32,
+                                operands: vec!["dummy".as_bytes().to_vec()],
+                            }],
+                        }),
+                        on_receive: None,
+                        on_byzantine_commit: None,
+                        is_reconfiguration: false,
+                        is_2pc: false,
+                    };
+                    self.execute_local(transaction, true).await;
+
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+    
+            });
+        }
+
+
+        handle
     }
 
     /// Asks own state, how many ops are committed but not audited for the client.

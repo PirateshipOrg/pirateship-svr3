@@ -34,7 +34,7 @@ impl ServerState {
         }
     }
 
-    pub async fn init(&self) -> JoinSet<()> {
+    pub async fn init(&'static self) -> JoinSet<()> {
         self.private_state.init().await;
         self.shared_state.init().await
     }
