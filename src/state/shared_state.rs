@@ -8,7 +8,7 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use log::{error, info};
+use log::{debug, error, info};
 use pft::{
     config::AtomicConfig,
     consensus::{
@@ -350,7 +350,7 @@ impl SharedState {
                     };
                     self.execute_local(transaction, true).await;
 
-                    // tokio::time::sleep(Duration::from_millis(1)).await;
+                    tokio::time::sleep(Duration::from_millis(1)).await;
                 }
     
             });
@@ -437,6 +437,7 @@ impl SharedState {
     }
 
     pub async fn probe_for_audit(&self, block_n: u64) {
+        debug!("Probing for audit at block {}", block_n);
         let probe_transaction = pft::proto::execution::ProtoTransaction {
             on_receive: Some(pft::proto::execution::ProtoTransactionPhase {
                 ops: vec![pft::proto::execution::ProtoTransactionOp {
@@ -450,7 +451,10 @@ impl SharedState {
             is_2pc: false,
         };
 
-        self.execute_local(probe_transaction, false).await;
+        debug!("Executing probe transaction");
+
+        let result = self.execute_remote_once(probe_transaction).await;
+        debug!("Probe transaction result: {:?}", result);
     }
 
     async fn execute_remote(
@@ -505,15 +509,23 @@ impl SharedState {
 
         let reply = ProtoClientReply::decode(&reply.0.as_slice()[0..reply.1]).unwrap();
         match reply.reply {
-            Some(pft::proto::client::proto_client_reply::Reply::Receipt(receipt)) => Some((
-                usize::from_be_bytes(
-                    receipt.results.unwrap().result[0].values[0]
-                        .as_slice()
-                        .try_into()
-                        .unwrap(),
-                ),
-                receipt.block_n,
-            )),
+            Some(pft::proto::client::proto_client_reply::Reply::Receipt(receipt)) => {
+                let Some(results) = receipt.results else {
+                    return None;
+                };
+                let Some(result) = results.result.first() else {
+                    return None;
+                };
+                let Some(value) = result.values.first() else {
+                    return None;
+                };
+
+                let val = usize::from_be_bytes(
+                    value.as_slice().try_into().unwrap_or([0; 8]),
+                );
+                
+                Some((val, receipt.block_n))
+            },
             _ => None,
         }
     }
@@ -524,7 +536,7 @@ impl SharedState {
         await_reply: bool,
     ) -> usize {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        let sender = SenderType::Auth(self.name.clone() + "_client1", CLIENT_SUB_ID_SELF);
+        let sender = SenderType::Anon;
         let tag = self.tag.fetch_add(1, Ordering::SeqCst);
         let ack_chan: MsgAckChanWithTag = (tx, tag, sender);
         let msg: TxWithAckChanTag = (Some(transaction), ack_chan);
@@ -540,15 +552,22 @@ impl SharedState {
 
             match reply.reply {
                 Some(pft::proto::client::proto_client_reply::Reply::Receipt(receipt)) => {
+                    let Some(results) = receipt.results else {
+                        return 0;
+                    };
+                    let Some(result) = results.result.first() else {
+                        return 0;
+                    };
+                    let Some(value) = result.values.first() else {
+                        return 0;
+                    };
+
                     usize::from_be_bytes(
-                        receipt.results.unwrap().result[0].values[0]
-                            .as_slice()
-                            .try_into()
-                            .unwrap(),
+                        value.as_slice().try_into().unwrap_or([0; 8]),
                     )
                 }
                 _ => {
-                    unreachable!();
+                    0
                 }
             }
         } else {

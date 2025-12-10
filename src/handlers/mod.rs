@@ -1,7 +1,7 @@
 /// Request/response marshalling.
 pub mod marshal;
 
-use log::{error, warn};
+use log::{debug, error, warn};
 use marshal::ClientRequest;
 use std::sync::Arc;
 
@@ -41,7 +41,7 @@ pub async fn refresh_handler(State(state): State<Arc<ServerState>>, extract::Jso
 
 fn check_for_throttle(val: usize, bci: usize, last_seen_value: usize, last_seen_block_n: usize, t: usize, max_oprf_eval_attempts: usize) -> bool {
     if val + t + 1 > max_oprf_eval_attempts {
-        error!("Type 1");
+        debug!("Type 1");
         // Too close to the limit.
         return true;
     }
@@ -70,7 +70,7 @@ fn check_for_throttle(val: usize, bci: usize, last_seen_value: usize, last_seen_
 
     if last_seen_block_n > 0 {
         if last_seen_block_n > bci {
-            error!("Type 2: {} {}", last_seen_block_n, bci);
+            debug!("Type 2: {} {}", last_seen_block_n, bci);
             return true;
         }
     }
