@@ -387,4 +387,3 @@ impl RecoveryClient {
         Ok(secret)
     }
 }
-

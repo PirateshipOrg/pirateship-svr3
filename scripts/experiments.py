@@ -341,11 +341,6 @@ sleep 10
 # Run the client with burst = 1
 $SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client1 1 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst1.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst1.err'
 
-# Run the client with burst = 2
-$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client2 2 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst2.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst2.err'
-
-# Run the client with burst = 5
-$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client3 5 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst5.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst5.err'
 
 # Run the client with burst = 10
 $SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client4 10 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst10.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst10.err'

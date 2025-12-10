@@ -59,12 +59,21 @@ max_concurrent_requests = 32
 
 
 [[experiments]]
-name = "peerreview"
+name = "throttle"
 repeats = 1
 num_nodes = 7
 num_clients = 1
 node_distribution = "uniform"
 build_command = "make"
+duration = 60 # Unused
+
+[[experiments]]
+name = "no-throttle"
+repeats = 1
+num_nodes = 7
+num_clients = 1
+node_distribution = "uniform"
+build_command = "make no-throttle"
 duration = 60 # Unused
 
 
