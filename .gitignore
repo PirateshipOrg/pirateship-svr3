@@ -3,3 +3,4 @@ configs/
 *.bin
 *.json
 __pycache__/
+deployment_artifacts/

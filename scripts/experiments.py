@@ -118,6 +118,8 @@ class Experiment:
         
         self.binary_mapping = defaultdict(list)
 
+        client_list_of_servers = []
+
         for node_num in range(1, self.num_nodes+1):
             port = deployment.node_port_base + node_num
             listen_addr = f"0.0.0.0:{port}"
@@ -144,6 +146,9 @@ class Experiment:
             config["net_config"]["addr"] = listen_addr
             # config["consensus_config"]["log_storage_config"]["RocksDB"]["db_path"] = f"{log_dir}/{name}-db"
             config["consensus_config"]["log_storage_config"]["RocksDB"]["db_path"] = f"/data/{name}-db"
+            config["app_config"]["rest_api_addr"] = f"0.0.0.0:{port + 2000}"
+            config["app_config"]["server_threshold"] = self.num_nodes - self.base_node_config["consensus_config"]["liveness_u"] - 1
+            client_list_of_servers.append(f"http://{private_ip}:{port + 2000}")
 
 
             node_configs[name] = config
@@ -181,19 +186,14 @@ class Experiment:
         num_clients_per_vm[-1] += (self.num_clients - sum(num_clients_per_vm))
 
         for client_num in range(len(client_vms)):
-            config = deepcopy(self.base_client_config)
-            client = "client" + str(client_num + 1)
-            config["net_config"]["name"] = client
-            config["net_config"]["nodes"] = deepcopy(nodes)
-
-            tls_cert_path, tls_key_path, tls_root_ca_cert_path,\
-            allowed_keylist_path, signing_priv_key_path = crypto_info[client]
-
-            config["net_config"]["tls_root_ca_cert_path"] = tls_root_ca_cert_path
-            config["rpc_config"] = {"signing_priv_key_path": signing_priv_key_path}
-
-            config["workload_config"]["num_clients"] = num_clients_per_vm[client_num]
-            config["workload_config"]["duration"] = self.duration
+            client = f"client{client_num + 1}"
+            config = {
+                "client_id": client,
+                "server_threshold": self.num_nodes - self.base_node_config["consensus_config"]["liveness_u"] - 1,
+                "server_count": self.num_nodes,
+                "server_urls": client_list_of_servers[:],
+                "share_store_file_path": "share_store.json"
+            }
 
             self.binary_mapping[client_vms[client_num]].append(client)
 
@@ -232,7 +232,7 @@ class Experiment:
 
     def copy_back_build_files(self):
         remote_repo = f"/home/{self.dev_ssh_user}/repo"
-        TARGET_BINARIES = ["client", "controller", "server", "net-perf"]
+        TARGET_BINARIES = ["client", "benchcli", "server"]
 
         # Copy the target/release to build directory
         for bin in TARGET_BINARIES:
@@ -319,19 +319,42 @@ SCP_CMD="scp -o StrictHostKeyChecking=no -i {self.dev_ssh_key}"
                 for bin in bin_list:
                     if "node" in bin:
                         binary_name = "server"
-                    elif "client" in bin:
-                        binary_name = "client"
-                    elif "controller" in bin:
-                        binary_name = "controller"
+                    else:
+                        continue
 
                     _script += f"""
 $SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}.err' &
 PID="$PID $!"
 """
+            for vm, bin_list in self.binary_mapping.items():
+                for bin in bin_list:
+                    if "client" in bin:
+                        binary_name = "benchcli"
+                    else:
+                        continue
+
+                    _script += f"""
+
+# Give time for view to stabilize
+sleep 10
+
+# Run the client with burst = 1
+$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client1 1 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst1.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst1.err'
+
+# Run the client with burst = 2
+$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client2 2 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst2.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst2.err'
+
+# Run the client with burst = 5
+$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client3 5 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst5.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst5.err'
+
+# Run the client with burst = 10
+$SSH_CMD {self.dev_ssh_user}@{vm.public_ip} 'RUST_BACKTRACE=full {self.remote_workdir}/build/{binary_name} client4 10 {self.remote_workdir}/configs/{bin}_config.json > {self.remote_workdir}/logs/{repeat_num}/{bin}_burst10.log 2> {self.remote_workdir}/logs/{repeat_num}/{bin}_burst10.err'
+
+"""
                     
             _script += f"""
-# Sleep for the duration of the experiment
-sleep {self.duration}
+# Cooldown
+sleep 5
 
 # Kill the binaries. First with a SIGINT, then with a SIGTERM, then with a SIGKILL
 echo -n $PID | xargs -d' ' -I{{}} kill -2 {{}} || true
@@ -348,7 +371,7 @@ sleep 10
                     if "node" in bin:
                         binary_name = "server"
                     elif "client" in bin:
-                        binary_name = "client"
+                        binary_name = "benchcli"
                     elif "controller" in bin:
                         binary_name = "controller"
                 
@@ -374,7 +397,7 @@ sleep 60
 
 
     def bins_already_exist(self):
-        TARGET_BINARIES = ["client", "controller", "server", "net-perf"]
+        TARGET_BINARIES = ["client", "benchcli", "server"]
         remote_repo = f"/home/{self.dev_ssh_user}/repo"
 
         res = run_remote_public_ip([

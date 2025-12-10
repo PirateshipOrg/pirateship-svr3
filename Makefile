@@ -1,3 +1,3 @@
 .PHONY: all
 all: src
-	cargo build --release
+	CC=clang CXX=clang++ cargo build --release

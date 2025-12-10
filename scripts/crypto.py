@@ -226,6 +226,10 @@ def gen_keys_and_certs(nodelist: Dict[str, Tuple[str, str]], caname: str, client
 
                 pubk_line = pubk_pem.splitlines()[1]
                 print(node, pubk_line.decode(), file=f)
+
+                if node.startswith("node"):
+                    _node = node + "_client1"
+                    print(_node, pubk_line.decode(), file=f)
     else:
         print("Generating Learner Info oneliners")
         for node, (addr, domain) in nodelist.items():
