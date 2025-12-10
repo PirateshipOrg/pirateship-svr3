@@ -1,0 +1,6 @@
+[2025-04-09 12:43:46,902] VD256H0F4N/INFO/locust.main: Starting Locust 2.33.2
+[2025-04-09 12:43:47,982] VD256H0F4N/INFO/asyncio: {'user_class_name': 'TestUser', 'getDistribution': 50, 'getRequestHosts': ['http://localhost:4001', 'http://localhost:4002', 'http://localhost:4003', 'http://localhost:4004'], 'workload': 'kms', 'machineId': 0, 'max_users': 50}
+[2025-04-09 12:44:47,914] VD256H0F4N/INFO/locust.runners: Got quit message from master, shutting down...
+[2025-04-09 12:44:47,974] VD256H0F4N/INFO/locust.main: Shutting down (exit code 0)
+getDistribution:  50 postDistribution:  50
+my machineId:  0
