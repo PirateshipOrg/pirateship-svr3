@@ -350,7 +350,7 @@ impl SharedState {
                     };
                     self.execute_local(transaction, true).await;
 
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    // tokio::time::sleep(Duration::from_millis(1)).await;
                 }
     
             });

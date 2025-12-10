@@ -23,8 +23,8 @@ commit_index_gap_soft = 25000000
 commit_index_gap_hard = 50000000
 liveness_u = 2
 max_backlog_batch_size = 1
-signature_max_delay_blocks = 10
-signature_max_delay_ms = 102 # roughly batch_max_delay_ms * signature_max_delay_blocks
+signature_max_delay_blocks = 200
+signature_max_delay_ms = 2002 # roughly batch_max_delay_ms * signature_max_delay_blocks
 num_crypto_workers = 5
 view_timeout_ms = 4000
 batch_max_delay_ms = 1
@@ -37,6 +37,7 @@ max_write_buffers_to_merge = 1
 [node_config.app_config]
 logger_stats_report_ms = 10000
 checkpoint_interval_ms = 10000
+max_oprf_eval_attempts = 50000
 
 [node_config.evil_config]
 simulate_byzantine_behavior = false
